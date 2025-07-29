@@ -1,0 +1,496 @@
+<?php
+session_start();
+require_once 'db_connect.php';
+
+// Verificar que sea administrador
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
+    header('Location: login.php');
+    exit();
+}
+
+$message = '';
+$message_type = '';
+
+// Procesar acciones
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+    $action = $_POST['action'] ?? '';
+    
+    switch ($action) {
+        case 'add':
+            $username = trim($_POST['username']);
+            $password = $_POST['password'];
+            $role = $_POST['role'];
+            $full_name = trim($_POST['full_name']);
+            $email = trim($_POST['email']);
+            
+            // Verificar si el usuario ya existe
+            $stmt = $conn->prepare("SELECT id FROM users WHERE username = ?");
+            $stmt->bind_param("s", $username);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            
+            if ($result->num_rows > 0) {
+                $message = 'El nombre de usuario ya existe.';
+                $message_type = 'error';
+            } else {
+                $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+                $stmt = $conn->prepare("INSERT INTO users (username, password, role, full_name, email) VALUES (?, ?, ?, ?, ?)");
+                $stmt->bind_param("sssss", $username, $hashed_password, $role, $full_name, $email);
+                
+                if ($stmt->execute()) {
+                    $message = 'Usuario creado exitosamente.';
+                    $message_type = 'success';
+                } else {
+                    $message = 'Error al crear el usuario.';
+                    $message_type = 'error';
+                }
+            }
+            $stmt->close();
+            break;
+            
+        case 'edit':
+            $user_id = $_POST['user_id'];
+            $username = trim($_POST['username']);
+            $role = $_POST['role'];
+            $full_name = trim($_POST['full_name']);
+            $email = trim($_POST['email']);
+            $status = $_POST['status'];
+            
+            $stmt = $conn->prepare("UPDATE users SET username = ?, role = ?, full_name = ?, email = ?, status = ? WHERE id = ?");
+            $stmt->bind_param("sssssi", $username, $role, $full_name, $email, $status, $user_id);
+            
+            if ($stmt->execute()) {
+                $message = 'Usuario actualizado exitosamente.';
+                $message_type = 'success';
+            } else {
+                $message = 'Error al actualizar el usuario.';
+                $message_type = 'error';
+            }
+            $stmt->close();
+            break;
+            
+        case 'delete':
+            $user_id = $_POST['user_id'];
+            // No permitir eliminar el propio usuario admin
+            if ($user_id != $_SESSION['user_id']) {
+                $stmt = $conn->prepare("DELETE FROM users WHERE id = ?");
+                $stmt->bind_param("i", $user_id);
+                
+                if ($stmt->execute()) {
+                    $message = 'Usuario eliminado exitosamente.';
+                    $message_type = 'success';
+                } else {
+                    $message = 'Error al eliminar el usuario.';
+                    $message_type = 'error';
+                }
+                $stmt->close();
+            } else {
+                $message = 'No puedes eliminar tu propio usuario.';
+                $message_type = 'error';
+            }
+            break;
+            
+        case 'reset_password':
+            $user_id = $_POST['user_id'];
+            $new_password = $_POST['new_password'];
+            $hashed_password = password_hash($new_password, PASSWORD_DEFAULT);
+            
+            $stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
+            $stmt->bind_param("si", $hashed_password, $user_id);
+            
+            if ($stmt->execute()) {
+                $message = 'Contraseña restablecida exitosamente.';
+                $message_type = 'success';
+            } else {
+                $message = 'Error al restablecer la contraseña.';
+                $message_type = 'error';
+            }
+            $stmt->close();
+            break;
+    }
+}
+
+// Obtener usuarios para mostrar
+$search = $_GET['search'] ?? '';
+$role_filter = $_GET['role'] ?? '';
+$status_filter = $_GET['status'] ?? 'active';
+
+$sql = "SELECT * FROM users WHERE 1=1";
+$params = [];
+$types = "";
+
+if ($search) {
+    $sql .= " AND (username LIKE ? OR full_name LIKE ? OR email LIKE ?)";
+    $search_param = "%$search%";
+    $params = array_merge($params, [$search_param, $search_param, $search_param]);
+    $types .= "sss";
+}
+
+if ($role_filter) {
+    $sql .= " AND role = ?";
+    $params[] = $role_filter;
+    $types .= "s";
+}
+
+if ($status_filter) {
+    $sql .= " AND status = ?";
+    $params[] = $status_filter;
+    $types .= "s";
+}
+
+$sql .= " ORDER BY created_at DESC";
+
+$stmt = $conn->prepare($sql);
+if ($params) {
+    $stmt->bind_param($types, ...$params);
+}
+$stmt->execute();
+$users = $stmt->get_result();
+
+// Si se está editando un usuario
+$editing_user = null;
+if (isset($_GET['edit'])) {
+    $edit_id = $_GET['edit'];
+    $stmt = $conn->prepare("SELECT * FROM users WHERE id = ?");
+    $stmt->bind_param("i", $edit_id);
+    $stmt->execute();
+    $editing_user = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+}
+
+$conn->close();
+?>
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestionar Usuarios - Panel de Administración</title>
+    <link rel="stylesheet" href="../css/admin_style.css">
+</head>
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h2>Admin Panel</h2>
+                <p>Bienvenido, <?php echo htmlspecialchars($_SESSION['username']); ?></p>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="admin_panel.php">📊 Dashboard</a></li>
+                <li><a href="manage_users.php" class="active">👥 Gestionar Usuarios</a></li>
+                <li><a href="view_attendance.php">📋 Ver Asistencia</a></li>
+                <li><a href="reports.php">📈 Reportes</a></li>
+                <li><a href="system_settings.php">⚙️ Configuración</a></li>
+                <li style="margin-top: 20px;"><a href="dashboard.php">🏠 Dashboard Normal</a></li>
+                <li><a href="logout.php">🚪 Cerrar Sesión</a></li>
+            </ul>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="content-header">
+                <h1>Gestionar Usuarios</h1>
+                <p>Administra estudiantes, profesores y administradores del sistema</p>
+            </div>
+
+            <?php if ($message): ?>
+                <div class="message <?php echo $message_type; ?>">
+                    <?php echo htmlspecialchars($message); ?>
+                </div>
+            <?php endif; ?>
+
+            <!-- Formulario para agregar/editar usuario -->
+            <div class="form-container">
+                <h2><?php echo $editing_user ? 'Editar Usuario' : 'Agregar Nuevo Usuario'; ?></h2>
+                <form method="POST" action="manage_users.php">
+                    <input type="hidden" name="action" value="<?php echo $editing_user ? 'edit' : 'add'; ?>">
+                    <?php if ($editing_user): ?>
+                        <input type="hidden" name="user_id" value="<?php echo $editing_user['id']; ?>">
+                    <?php endif; ?>
+                    
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="username">Nombre de Usuario *</label>
+                            <input type="text" id="username" name="username" 
+                                   value="<?php echo $editing_user ? htmlspecialchars($editing_user['username']) : ''; ?>" 
+                                   required>
+                        </div>
+                        
+                        <?php if (!$editing_user): ?>
+                        <div class="form-group">
+                            <label for="password">Contraseña *</label>
+                            <input type="password" id="password" name="password" required>
+                        </div>
+                        <?php endif; ?>
+                        
+                        <div class="form-group">
+                            <label for="role">Rol *</label>
+                            <select id="role" name="role" required>
+                                <option value="student" <?php echo ($editing_user && $editing_user['role'] == 'student') ? 'selected' : ''; ?>>Estudiante</option>
+                                <option value="teacher" <?php echo ($editing_user && $editing_user['role'] == 'teacher') ? 'selected' : ''; ?>>Profesor</option>
+                                <option value="admin" <?php echo ($editing_user && $editing_user['role'] == 'admin') ? 'selected' : ''; ?>>Administrador</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="full_name">Nombre Completo</label>
+                            <input type="text" id="full_name" name="full_name" 
+                                   value="<?php echo $editing_user ? htmlspecialchars($editing_user['full_name']) : ''; ?>">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="email">Email</label>
+                            <input type="email" id="email" name="email" 
+                                   value="<?php echo $editing_user ? htmlspecialchars($editing_user['email']) : ''; ?>">
+                        </div>
+                        
+                        <?php if ($editing_user): ?>
+                        <div class="form-group">
+                            <label for="status">Estado</label>
+                            <select id="status" name="status">
+                                <option value="active" <?php echo ($editing_user['status'] == 'active') ? 'selected' : ''; ?>>Activo</option>
+                                <option value="inactive" <?php echo ($editing_user['status'] == 'inactive') ? 'selected' : ''; ?>>Inactivo</option>
+                            </select>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button type="submit" class="btn btn-primary">
+                            <?php echo $editing_user ? 'Actualizar Usuario' : 'Crear Usuario'; ?>
+                        </button>
+                        <?php if ($editing_user): ?>
+                            <a href="manage_users.php" class="btn" style="background: #718096; color: white;">Cancelar</a>
+                        <?php endif; ?>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Filtros de búsqueda -->
+            <div class="form-container">
+                <h3>Filtrar Usuarios</h3>
+                <form method="GET" action="manage_users.php">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label for="search">Buscar</label>
+                            <input type="text" id="search" name="search" 
+                                   placeholder="Nombre de usuario, nombre completo o email"
+                                   value="<?php echo htmlspecialchars($search); ?>">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="role_filter">Filtrar por Rol</label>
+                            <select id="role_filter" name="role">
+                                <option value="">Todos los roles</option>
+                                <option value="student" <?php echo ($role_filter == 'student') ? 'selected' : ''; ?>>Estudiantes</option>
+                                <option value="teacher" <?php echo ($role_filter == 'teacher') ? 'selected' : ''; ?>>Profesores</option>
+                                <option value="admin" <?php echo ($role_filter == 'admin') ? 'selected' : ''; ?>>Administradores</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="status_filter">Filtrar por Estado</label>
+                            <select id="status_filter" name="status">
+                                <option value="">Todos los estados</option>
+                                <option value="active" <?php echo ($status_filter == 'active') ? 'selected' : ''; ?>>Activos</option>
+                                <option value="inactive" <?php echo ($status_filter == 'inactive') ? 'selected' : ''; ?>>Inactivos</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Filtrar</button>
+                    <a href="manage_users.php" class="btn" style="background: #718096; color: white;">Limpiar Filtros</a>
+                </form>
+            </div>
+
+            <!-- Lista de usuarios -->
+            <div class="data-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Usuario</th>
+                            <th>Nombre Completo</th>
+                            <th>Email</th>
+                            <th>Rol</th>
+                            <th>Estado</th>
+                            <th>Creado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php while ($user = $users->fetch_assoc()): ?>
+                        <tr>
+                            <td><?php echo $user['id']; ?></td>
+                            <td><strong><?php echo htmlspecialchars($user['username']); ?></strong></td>
+                            <td><?php echo htmlspecialchars($user['full_name'] ?? 'N/A'); ?></td>
+                            <td><?php echo htmlspecialchars($user['email'] ?? 'N/A'); ?></td>
+                            <td>
+                                <span class="role-badge <?php echo $user['role']; ?>">
+                                    <?php 
+                                    switch($user['role']) {
+                                        case 'student': echo '👨‍🎓 Estudiante'; break;
+                                        case 'teacher': echo '👨‍🏫 Profesor'; break;
+                                        case 'admin': echo '👑 Admin'; break;
+                                    }
+                                    ?>
+                                </span>
+                            </td>
+                            <td>
+                                <span class="status-badge <?php echo $user['status']; ?>">
+                                    <?php echo $user['status'] == 'active' ? '✅ Activo' : '❌ Inactivo'; ?>
+                                </span>
+                            </td>
+                            <td><?php echo date('d/m/Y', strtotime($user['created_at'])); ?></td>
+                            <td>
+                                <div class="action-buttons">
+                                    <a href="manage_users.php?edit=<?php echo $user['id']; ?>" 
+                                       class="btn btn-sm" style="background: #4299e1; color: white;">✏️</a>
+                                    
+                                    <button onclick="showPasswordModal(<?php echo $user['id']; ?>, '<?php echo htmlspecialchars($user['username']); ?>')" 
+                                            class="btn btn-sm" style="background: #38a169; color: white;">🔑</button>
+                                    
+                                    <?php if ($user['id'] != $_SESSION['user_id']): ?>
+                                    <button onclick="confirmDelete(<?php echo $user['id']; ?>, '<?php echo htmlspecialchars($user['username']); ?>')" 
+                                            class="btn btn-sm btn-danger">🗑️</button>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                        </tr>
+                        <?php endwhile; ?>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal para restablecer contraseña -->
+    <div id="passwordModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Restablecer Contraseña</h3>
+            <form id="passwordForm" method="POST" action="manage_users.php">
+                <input type="hidden" name="action" value="reset_password">
+                <input type="hidden" name="user_id" id="resetUserId">
+                
+                <div class="form-group">
+                    <label>Usuario: <span id="resetUsername"></span></label>
+                </div>
+                
+                <div class="form-group">
+                    <label for="new_password">Nueva Contraseña</label>
+                    <input type="password" id="new_password" name="new_password" required>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary">Restablecer</button>
+                    <button type="button" onclick="closePasswordModal()" class="btn" style="background: #718096; color: white;">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para confirmar eliminación -->
+    <div id="deleteModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Confirmar Eliminación</h3>
+            <p>¿Estás seguro de que quieres eliminar al usuario <strong id="deleteUsername"></strong>?</p>
+            <p style="color: #e53e3e; font-size: 14px;">Esta acción no se puede deshacer.</p>
+            
+            <form id="deleteForm" method="POST" action="manage_users.php">
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="user_id" id="deleteUserId">
+                
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="submit" class="btn btn-danger">Eliminar</button>
+                    <button type="button" onclick="closeDeleteModal()" class="btn" style="background: #718096; color: white;">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <style>
+        .role-badge, .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .role-badge.student { background: #e6fffa; color: #234e52; }
+        .role-badge.teacher { background: #fef5e7; color: #744210; }
+        .role-badge.admin { background: #f0fff4; color: #22543d; }
+        
+        .status-badge.active { background: #c6f6d5; color: #2f855a; }
+        .status-badge.inactive { background: #fed7d7; color: #c53030; }
+        
+        .action-buttons {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .btn-sm {
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+        
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            min-width: 400px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+    </style>
+
+    <script>
+        function showPasswordModal(userId, username) {
+            document.getElementById('resetUserId').value = userId;
+            document.getElementById('resetUsername').textContent = username;
+            document.getElementById('passwordModal').style.display = 'flex';
+        }
+        
+        function closePasswordModal() {
+            document.getElementById('passwordModal').style.display = 'none';
+            document.getElementById('new_password').value = '';
+        }
+        
+        function confirmDelete(userId, username) {
+            document.getElementById('deleteUserId').value = userId;
+            document.getElementById('deleteUsername').textContent = username;
+            document.getElementById('deleteModal').style.display = 'flex';
+        }
+        
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').style.display = 'none';
+        }
+        
+        // Cerrar modales al hacer clic fuera
+        window.onclick = function(event) {
+            const passwordModal = document.getElementById('passwordModal');
+            const deleteModal = document.getElementById('deleteModal');
+            
+            if (event.target === passwordModal) {
+                closePasswordModal();
+            }
+            if (event.target === deleteModal) {
+                closeDeleteModal();
+            }
+        }
+    </script>
+</body>
+</html>

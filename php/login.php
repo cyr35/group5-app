@@ -1,52 +1,47 @@
 <?php
-session_start();
+require_once 'config.php';
 require_once 'db_connect.php';
 
-$error = '';
+$error_message = '';
+$success_message = '';
 
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $username = trim($_POST['username']);
-    $password = $_POST['password'];
-
-    try {
-        $stmt = $conn->prepare("SELECT id, password, role, full_name, status FROM users WHERE username = ?");
-        $stmt->bind_param("s", $username);
-        $stmt->execute();
-        $stmt->store_result();
-        
-        if ($stmt->num_rows > 0) {
-            $stmt->bind_result($id, $hashed_password, $role, $full_name, $status);
-            $stmt->fetch();
-            
-            // Verificar que el usuario esté activo
-            if ($status !== 'active') {
-                $error = 'Tu cuenta está inactiva. Contacta al administrador.';
-            } elseif (password_verify($password, $hashed_password)) {
-                $_SESSION['user_id'] = $id;
-                $_SESSION['username'] = $username;
-                $_SESSION['role'] = $role;
-                $_SESSION['full_name'] = $full_name;
-                
-                // Redirigir según el rol
-                if ($role === 'admin') {
-                    header('Location: admin_panel.php');
-                } else {
-                    header('Location: dashboard.php');
-                }
-                exit();
-            } else {
-                $error = 'Contraseña incorrecta.';
-            }
-        } else {
-            $error = 'Usuario no encontrado.';
-        }
-        $stmt->close();
-    } catch (Exception $e) {
-        $error = 'Error en el sistema. Intenta nuevamente.';
-    }
+// Si ya está logueado, redirigir al dashboard
+if (isLoggedIn()) {
+    header('Location: dashboard.php');
+    exit();
 }
 
-$conn->close();
+// Procesar formulario de login
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $username = trim($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
+    
+    if (empty($username) || empty($password)) {
+        $error_message = 'Por favor, complete todos los campos.';
+    } else {
+        // Buscar usuario en la base de datos
+        $user = fetchOne(
+            "SELECT id, username, password, role, full_name FROM users WHERE username = ?",
+            [$username],
+            's'
+        );
+        
+        if ($user && password_verify($password, $user['password'])) {
+            // Login exitoso
+            $_SESSION['user_id'] = $user['id'];
+            $_SESSION['username'] = $user['username'];
+            $_SESSION['role'] = $user['role'];
+            $_SESSION['full_name'] = $user['full_name'];
+            $_SESSION['login_time'] = time();
+            
+            // Redirigir al dashboard
+            header('Location: dashboard.php');
+            exit();
+        } else {
+            $error_message = 'Usuario o contraseña incorrectos.';
+        }
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -54,183 +49,125 @@ $conn->close();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Iniciar Sesión - Sistema de Asistencia</title>
-    <link rel="stylesheet" href="../css/style.css">
+    <title><?php echo APP_NAME; ?> - Iniciar Sesión</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        .demo-credentials {
-            margin-top: 30px;
-            padding: 20px;
+        body {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 10px;
-            color: white;
-        }
-        
-        .demo-credentials h3 {
-            margin-bottom: 15px;
-            color: white;
-            text-align: center;
-        }
-        
-        .credential-item {
+            min-height: 100vh;
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.2);
         }
-        
-        .credential-item:last-child {
-            border-bottom: none;
+        .login-container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
         }
-        
-        .credential-role {
-            font-weight: bold;
-            font-size: 14px;
-        }
-        
-        .credential-info {
-            text-align: right;
-            font-size: 12px;
-        }
-        
-        .quick-login {
-            background: rgba(255,255,255,0.2);
-            border: none;
+        .login-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 5px 10px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 11px;
-            margin-left: 10px;
-            transition: background 0.3s ease;
-        }
-        
-        .quick-login:hover {
-            background: rgba(255,255,255,0.3);
-        }
-        
-        .system-info {
+            padding: 2rem;
             text-align: center;
-            margin-top: 15px;
-            font-size: 12px;
-            opacity: 0.9;
         }
-        
-        .version-badge {
-            display: inline-block;
-            background: rgba(255,255,255,0.2);
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 10px;
-            margin-top: 10px;
+        .login-body {
+            padding: 2rem;
+        }
+        .form-control:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+        .btn-login {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            transition: transform 0.2s;
+        }
+        .btn-login:hover {
+            transform: translateY(-2px);
+            background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+        }
+        .demo-credentials {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 1rem;
+            margin-top: 1rem;
+            font-size: 0.9rem;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>🎓 Sistema de Asistencia</h2>
-        <p style="text-align: center; color: #666; margin-bottom: 30px;">
-            Inicia sesión para acceder al sistema
-        </p>
-        
-        <?php if ($error): ?>
-            <div class="error"><?php echo htmlspecialchars($error); ?></div>
-        <?php endif; ?>
-        
-        <form action="login.php" method="post" id="loginForm">
-            <div class="form-group">
-                <label for="username">👤 Usuario:</label>
-                <input type="text" id="username" name="username" required 
-                       placeholder="Ingresa tu nombre de usuario">
-            </div>
-            <div class="form-group">
-                <label for="password">🔒 Contraseña:</label>
-                <input type="password" id="password" name="password" required 
-                       placeholder="Ingresa tu contraseña">
-            </div>
-            <button type="submit">🚀 Iniciar Sesión</button>
-        </form>
-        
-        <!-- Credenciales de demostración -->
-        <div class="demo-credentials">
-            <h3>🔧 Credenciales de Prueba</h3>
-            <div class="credential-item">
-                <div>
-                    <div class="credential-role">👑 Administrador</div>
+        <div class="row justify-content-center">
+            <div class="col-md-6 col-lg-5">
+                <div class="login-container">
+                    <div class="login-header">
+                        <i class="fas fa-user-graduate fa-3x mb-3"></i>
+                        <h2><?php echo APP_NAME; ?></h2>
+                        <p class="mb-0">Iniciar Sesión</p>
+                    </div>
+                    
+                    <div class="login-body">
+                        <?php if ($error_message): ?>
+                            <div class="alert alert-danger" role="alert">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <?php echo escape($error_message); ?>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <?php if ($success_message): ?>
+                            <div class="alert alert-success" role="alert">
+                                <i class="fas fa-check-circle"></i>
+                                <?php echo escape($success_message); ?>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <form method="POST" action="">
+                            <div class="mb-3">
+                                <label for="username" class="form-label">
+                                    <i class="fas fa-user"></i> Usuario
+                                </label>
+                                <input type="text" class="form-control" id="username" name="username" 
+                                       value="<?php echo escape($_POST['username'] ?? ''); ?>" required>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="password" class="form-label">
+                                    <i class="fas fa-lock"></i> Contraseña
+                                </label>
+                                <input type="password" class="form-control" id="password" name="password" required>
+                            </div>
+                            
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary btn-login">
+                                    <i class="fas fa-sign-in-alt"></i> Iniciar Sesión
+                                </button>
+                            </div>
+                        </form>
+                        
+                        <div class="demo-credentials">
+                            <h6><i class="fas fa-info-circle"></i> Credenciales de Demo:</h6>
+                            <div class="row">
+                                <div class="col-6">
+                                    <strong>Profesor:</strong><br>
+                                    Usuario: profesor1<br>
+                                    Contraseña: teacher_password
+                                </div>
+                                <div class="col-6">
+                                    <strong>Estudiante:</strong><br>
+                                    Usuario: estudiante1<br>
+                                    Contraseña: student_password
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="credential-info">
-                    <strong>admin</strong> / password
-                    <button type="button" class="quick-login" onclick="quickLogin('admin', 'password')">
-                        Acceso Rápido
-                    </button>
-                </div>
             </div>
-            <div class="credential-item">
-                <div>
-                    <div class="credential-role">👨‍🏫 Profesor</div>
-                </div>
-                <div class="credential-info">
-                    <strong>profesor1</strong> / password
-                    <button type="button" class="quick-login" onclick="quickLogin('profesor1', 'password')">
-                        Acceso Rápido
-                    </button>
-                </div>
-            </div>
-            <div class="credential-item">
-                <div>
-                    <div class="credential-role">👨‍🎓 Estudiante</div>
-                </div>
-                <div class="credential-info">
-                    <strong>estudiante1</strong> / password
-                    <button type="button" class="quick-login" onclick="quickLogin('estudiante1', 'password')">
-                        Acceso Rápido
-                    </button>
-                </div>
-            </div>
-            
-            <div class="system-info">
-                <div>🔐 <strong>Panel de Administración:</strong> Gestiona usuarios, ve reportes completos</div>
-                <div>📊 <strong>Dashboard de Profesor:</strong> Registra asistencia, ve todos los estudiantes</div>
-                <div>📋 <strong>Vista de Estudiante:</strong> Consulta tu historial de asistencia</div>
-                <div class="version-badge">v2.0 - Panel de Administración</div>
-            </div>
-        </div>
-        
-        <div style="text-align: center; margin-top: 20px; color: #888; font-size: 12px;">
-            <p>¿Problemas para acceder? Contacta al administrador del sistema</p>
         </div>
     </div>
-
-    <script>
-        function quickLogin(username, password) {
-            document.getElementById('username').value = username;
-            document.getElementById('password').value = password;
-            
-            // Opcional: enviar automáticamente
-            // document.getElementById('loginForm').submit();
-            
-            // O resaltar los campos para que el usuario vea qué se llenó
-            const usernameField = document.getElementById('username');
-            const passwordField = document.getElementById('password');
-            
-            usernameField.style.background = '#e8f5e8';
-            passwordField.style.background = '#e8f5e8';
-            
-            setTimeout(() => {
-                usernameField.style.background = '';
-                passwordField.style.background = '';
-            }, 2000);
-            
-            // Enfocar el botón de envío
-            document.querySelector('button[type="submit"]').focus();
-        }
-        
-        // Efecto de carga al enviar
-        document.getElementById('loginForm').addEventListener('submit', function() {
-            const button = document.querySelector('button[type="submit"]');
-            button.innerHTML = '⏳ Iniciando sesión...';
-            button.disabled = true;
-        });
-    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
