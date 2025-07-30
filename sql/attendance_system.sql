@@ -1,5 +1,5 @@
 -- Crear base de datos si no existe
-CREATE DATABASE IF NOT EXISTS attendance_system CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+--CREATE DATABASE IF NOT EXISTS attendance_system CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE attendance_system;
 
 -- Eliminar tablas si existen (para reinstalación limpia)
