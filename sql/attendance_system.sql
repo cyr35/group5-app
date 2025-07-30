@@ -1,5 +1,6 @@
 -- Crear base de datos si no existe
---CREATE DATABASE IF NOT EXISTS attendance_system CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS attendance_system;
+
 USE attendance_system;
 
 -- Eliminar tablas si existen (para reinstalación limpia)
@@ -19,7 +20,7 @@ CREATE TABLE users (
     is_active BOOLEAN DEFAULT TRUE,
     INDEX idx_username (username),
     INDEX idx_role (role)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB;
 
 -- Tabla de asistencia
 CREATE TABLE attendance (
@@ -38,7 +39,7 @@ CREATE TABLE attendance (
     INDEX idx_student_id (student_id),
     INDEX idx_teacher_id (teacher_id),
     INDEX idx_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB;
 
 -- Insertar usuarios de ejemplo con contraseñas correctamente hasheadas
 -- Las contraseñas son: teacher_password y student_password
