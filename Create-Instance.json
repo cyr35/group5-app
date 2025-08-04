@@ -134,21 +134,27 @@
       }
     },
 
-    "DBSecurityGroup": {
-      "Type": "AWS::EC2::SecurityGroup",
-      "Properties": {
-        "GroupDescription": "Allow DB access only from WebServer",
-        "VpcId": { "Ref": "MyVPC" },
-        "SecurityGroupIngress": [
-          {
-            "IpProtocol": "tcp",
-            "FromPort": 3306,
-            "ToPort": 3306,
-            "SourceSecurityGroupId": { "Ref": "WebSecurityGroup" }
-          }
-        ]
+"DBSecurityGroup": {
+  "Type": "AWS::EC2::SecurityGroup",
+  "Properties": {
+    "GroupDescription": "Allow DB access only from WebServer",
+    "VpcId": { "Ref": "MyVPC" },
+    "SecurityGroupIngress": [
+      {
+        "IpProtocol": "tcp",
+        "FromPort": 3306,
+        "ToPort": 3306,
+        "SourceSecurityGroupId": { "Ref": "WebSecurityGroup" }
+      },
+      {
+        "IpProtocol": "tcp",
+        "FromPort": 22,
+        "ToPort": 22,
+        "SourceSecurityGroupId": { "Ref": "WebSecurityGroup" }
       }
-    },
+    ]
+  }
+},
 
     "WebInstance": {
       "Type": "AWS::EC2::Instance",
